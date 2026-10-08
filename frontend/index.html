@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResQNet Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>ResQNet Simulator</h1>
+    <p>Watch an emergency network detect a failure, find another route, and keep communication going.</p>
+  </div>
+  <div class="top-right">
+    <span id="status" class="badge" role="status">Idle</span>
+    <button id="themeBtn" type="button" class="ghost" aria-pressed="false">Dark theme</button>
+  </div>
+</header>
+<div id="notice" class="notice" role="alert" hidden></div>
+
+<main>
+  <section class="panel map-panel" aria-labelledby="mapH">
+    <h2 id="mapH">Network topology</h2>
+    <svg id="map" viewBox="0 0 900 460" role="group" aria-label="Network topology map"></svg>
+    <ul class="legend">
+      <li><i class="sw route"></i>Route in use</li>
+      <li><i class="sw fail"></i>Failed</li>
+      <li><i class="sw warn"></i>Congested</li>
+    </ul>
+    <p class="hint">Click a node or link to select it as the event target. Drag nodes (or use arrow keys) to rearrange.</p>
+  </section>
+
+  <div class="controls">
+    <section class="panel" aria-labelledby="reqH">
+      <h2 id="reqH">Emergency request</h2>
+      <div class="grid2">
+        <label>From <select id="reqFrom"></select></label>
+        <label>To <select id="reqTo"></select></label>
+        <label>Priority
+          <select id="reqPriority"><option value="1">1 Normal</option><option value="2">2 Emergency</option><option value="3">3 Critical</option></select>
+        </label>
+        <label>Packets <input id="reqPackets" type="number" min="1" max="5000" value="100"></label>
+      </div>
+      <label class="check"><input id="reqAdaptive" type="checkbox" checked> Adaptive routing</label>
+      <p class="hint">Off keeps the first route even after it breaks.</p>
+      <button id="reqBtn" type="button">Create request and find route</button>
+      <div class="row">
+        <label>Batch size <input id="batchSize" type="number" min="1" max="5000" value="20"></label>
+        <button id="batchBtn" type="button" class="ghost">Transmit batch</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="evH">
+      <h2 id="evH">Events</h2>
+      <div class="grid2">
+        <label>Event
+          <select id="evType">
+            <option value="failNode">Fail a node</option><option value="restoreNode">Restore a node</option>
+            <option value="failLink">Fail a link</option><option value="restoreLink">Restore a link</option>
+            <option value="congestLink">Congest a link</option><option value="clearCongestion">Clear congestion on a link</option>
+          </select>
+        </label>
+        <label>Target <select id="evTarget"></select></label>
+        <label id="evLoadWrap" hidden>Load on link (%) <input id="evLoad" type="number" min="1" max="100" value="90"></label>
+      </div>
+      <div class="row">
+        <button id="evBtn" type="button">Trigger event</button>
+        <button id="restoreBtn" type="button" class="ghost">Restore everything</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="scH">
+      <h2 id="scH">Scenario</h2>
+      <label>Scenario <select id="scSelect"></select></label>
+      <div class="row">
+        <button id="scRun" type="button">Run complete simulation</button>
+        <button id="scReset" type="button" class="ghost">Reset simulation</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <details>
+        <summary>Edit network</summary>
+        <div class="grid2">
+          <label>Node name <input id="nodeName" type="text" maxlength="12"></label>
+          <label>Role <input id="nodeRole" type="text" maxlength="24" placeholder="Tower"></label>
+        </div>
+        <button id="addNodeBtn" type="button" class="ghost">Add node</button>
+        <div class="grid2">
+          <label>Link from <select id="linkFrom"></select></label>
+          <label>Link to <select id="linkTo"></select></label>
+          <label>Cost <input id="linkCost" type="number" min="1" value="2"></label>
+          <label>Bandwidth <input id="linkBw" type="number" min="1" value="80"></label>
+          <label>Delay (ms) <input id="linkDelay" type="number" min="1" value="25"></label>
+        </div>
+        <button id="addLinkBtn" type="button" class="ghost">Add link</button>
+      </details>
+    </section>
+  </div>
+
+  <section class="panel wide" aria-labelledby="finH">
+    <h2 id="finH">Result</h2>
+    <p id="final" class="final">No simulation yet. Create a request or run a scenario.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="perfH">
+    <h2 id="perfH">Performance</h2>
+    <div id="metrics" class="metrics"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="rtH">
+    <h2 id="rtH">Route table</h2>
+    <div class="scroll"><table><thead><tr><th>Route</th><th>Path</th><th>Cost</th><th>Delay</th><th>Status</th></tr></thead><tbody id="routes"></tbody></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="cmpH">
+    <h2 id="cmpH">Static vs adaptive routing</h2>
+    <div class="scroll"><table><thead><tr><th>Result</th><th>Static routing</th><th>Adaptive routing</th></tr></thead><tbody id="comparison"></tbody></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="logH">
+    <h2 id="logH">Event log</h2>
+    <ol id="log" class="log" aria-live="polite"></ol>
+  </section>
+</main>
+
+<!-- Plain scripts (no build step). Order matters: api, ui, map, app. -->
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/map.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
