@@ -49,3 +49,45 @@ ResQNet-Simulator-Emergency-Communication-Network/
 ## Project Status
 
 The initial repository structure and frontend foundation have been created. The frontend currently uses a mock API. The C++ simulation backend and its integration with the frontend are planned for future development.
+
+## Running the Frontend
+
+### Requirements
+- Python 3 installed, or another local HTTP server.
+
+### Steps
+1. Clone or download the repository.
+2. Open a terminal in the project directory.
+3. Navigate to the `frontend` folder.
+4. Start the local server:
+
+   ```bash
+   python -m http.server 8000
+   ```
+
+5. Open `http://localhost:8000` in your browser.
+
+The frontend currently uses a mock API for demonstration and testing.
+
+## Planned C++ Backend
+
+The C++ backend will handle the core network simulation logic. The existing HTML, CSS, and JavaScript frontend will remain responsible for visualization and user interaction.
+
+Planned backend components:
+
+- **Network Model:** Represents network nodes and communication links.
+- **Routing Module:** Calculates routes using Dijkstra's algorithm.
+- **Failure Management:** Handles failed nodes and links.
+- **Adaptive Routing:** Finds alternative routes after network failures.
+- **Simulation and Metrics:** Simulates packet delivery and measures network performance.
+
+## Development Roadmap
+
+1. Complete and test the frontend prototype.
+2. Define the C++ network model.
+3. Implement Dijkstra routing.
+4. Add node and link failure handling.
+5. Implement adaptive rerouting.
+6. Add packet simulation and performance metrics.
+7. Integrate the frontend with the C++ backend.
+8. Test the complete simulator using different failure scenarios.
