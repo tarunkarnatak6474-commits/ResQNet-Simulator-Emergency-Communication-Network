@@ -114,6 +114,20 @@ public:
     ActionResult restoreLink(int a, int b) {
         return failureSimulator.restoreLink(a, b);
     }
+    int restoreAll() {
+    return failureSimulator.restoreAll();
+}
+// Run a predefined failure scenario
+ScenarioResult runScenario(const Scenario& scenario) {
+    ScenarioResult result = failureSimulator.runScenario(scenario);
+
+    // Recalculate route automatically in adaptive mode
+    if (adaptiveMode && endpointsConfigured) {
+        routing.updateRoute(source, destination);
+    }
+
+    return result;
+}
 
     // ================= FAILURE DETECTION =================
 
@@ -183,7 +197,38 @@ public:
         NetworkScenario scenario = buildScenario(name);
         displayReport(scenario);
     }
+// ================= RESET SIMULATION =================
 
+void resetSimulation() {
+
+    // Restore all failed nodes and links
+    failureSimulator.restoreAll();
+
+    // Clear old failure injection events
+    failureSimulator.clearEventLog();
+
+    // Reset heartbeat counters and detection history
+    failureDetector.resetAll();
+    failureDetector.clearEventLog();
+
+    // Reset packet counters
+    packetsSent = 0;
+    packetsDelivered = 0;
+
+    // Clear old route
+    routing.clearRoute();
+
+    // Recalculate the original route
+    if (endpointsConfigured) {
+        if (adaptiveMode)
+            routing.setAdaptiveRoute(source, destination);
+        else
+            routing.setStaticRoute(source, destination);
+    }
+
+    // Reset route-change counter
+    routing.resetRouteChanges();
+}
     // ================= STATUS / ACCESS =================
 
     int getPacketsSent() const {

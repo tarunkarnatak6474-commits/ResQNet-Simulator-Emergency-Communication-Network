@@ -59,13 +59,13 @@
 // Result of trying to register a node for monitoring
 // ------------------------------------------------------------
 enum class RegisterResult {
-    REGISTERED,         // node is now monitored
+    NODE_REGISTERED,         // node is now monitored
     ALREADY_MONITORED,  // it was already monitored (state kept)
     NOT_FOUND           // the node does not exist in the Network
 };
 
 inline std::string registerResultToString(RegisterResult r) {
-    if (r == RegisterResult::REGISTERED)
+    if (r == RegisterResult::NODE_REGISTERED)
         return "REGISTERED";
     if (r == RegisterResult::ALREADY_MONITORED)
         return "ALREADY_MONITORED";
@@ -274,7 +274,7 @@ public:
 
         HeartbeatState s = { id, 0, 0, false, 0, 0 };
         states.push_back(s);
-        return RegisterResult::REGISTERED;
+        return RegisterResult::NODE_REGISTERED;
     }
 
     // Registers every node currently in the Network.
@@ -283,7 +283,7 @@ public:
         int added = 0;
         const std::vector<Node>& allNodes = network.getNodes();
         for (size_t i = 0; i < allNodes.size(); i++) {
-            if (registerNode(allNodes[i].id) == RegisterResult::REGISTERED)
+            if (registerNode(allNodes[i].id) == RegisterResult::NODE_REGISTERED)
                 added++;
         }
         return added;

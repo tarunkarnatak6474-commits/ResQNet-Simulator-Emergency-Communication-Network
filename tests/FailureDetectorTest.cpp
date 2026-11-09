@@ -77,7 +77,7 @@ void testRegistration() {
     buildNetwork(net);
     FailureDetector d(net);
 
-    check(d.registerNode(1) == RegisterResult::REGISTERED, "register node 1");
+    check(d.registerNode(1) == RegisterResult::NODE_REGISTERED, "register node 1");
     check(d.isMonitored(1), "node 1 is monitored");
     check(d.getMonitoredCount() == 1, "monitored count is 1");
     check(d.getMissedCount(1) == 0, "new node has 0 missed");
@@ -93,7 +93,7 @@ void testRegistration() {
     check(!d.isMonitored(99), "99 not monitored");
     check(d.getMonitoredCount() == 1, "invalid ids not counted");
 
-    check(d.registerNode(3) == RegisterResult::REGISTERED, "register node 3");
+    check(d.registerNode(3) == RegisterResult::NODE_REGISTERED, "register node 3");
     std::vector<int> ids = d.getMonitoredIds();
     check(ids.size() == 2 && ids[0] == 1 && ids[1] == 3,
           "monitored ids in registration order");
@@ -623,7 +623,7 @@ void testResetAndClear() {
     check(!d.isMonitored(1), "node 1 not monitored after clear");
     check(d.sendHeartbeat(1) == HeartbeatEffect::NOT_MONITORED,
           "heartbeat after clear ignored");
-    check(d.registerNode(1) == RegisterResult::REGISTERED, "can register again");
+    check(d.registerNode(1) == RegisterResult::NODE_REGISTERED, "can register again");
     check(d.runHeartbeatRound() == 0, "round with healthy node: no events");
 
     // Empty detector is safe
@@ -659,7 +659,7 @@ void testDisplayAndStrings() {
     d.recordHeartbeatMiss(2);
     d.recordHeartbeatMiss(2);
 
-    check(registerResultToString(RegisterResult::REGISTERED) == "REGISTERED", "RegisterResult string");
+    check(registerResultToString(RegisterResult::NODE_REGISTERED) == "NODE_REGISTERED", "RegisterResult string");
     check(registerResultToString(RegisterResult::NOT_FOUND) == "NOT_FOUND", "RegisterResult NOT_FOUND string");
     check(heartbeatEffectToString(HeartbeatEffect::FAILURE_DETECTED) == "FAILURE_DETECTED", "effect string");
     check(heartbeatEffectToString(HeartbeatEffect::NOT_MONITORED) == "NOT_MONITORED", "effect NOT_MONITORED string");
