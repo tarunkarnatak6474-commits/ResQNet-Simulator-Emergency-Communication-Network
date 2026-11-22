@@ -114,9 +114,34 @@ public:
     ActionResult restoreLink(int a, int b) {
         return failureSimulator.restoreLink(a, b);
     }
-    int restoreAll() {
+   
+
+// ================= CONGESTION CONTROL =================
+
+bool congestLink(int a, int b, double load) {
+    if (!network.congestLink(a, b, load))
+        return false;
+
+    if (adaptiveMode && endpointsConfigured)
+        routing.updateRoute(source, destination);
+
+    return true;
+}
+
+bool clearCongestion(int a, int b) {
+    if (!network.clearCongestion(a, b))
+        return false;
+
+    if (adaptiveMode && endpointsConfigured)
+        routing.updateRoute(source, destination);
+
+    return true;
+}
+
+int restoreAll() {
     return failureSimulator.restoreAll();
 }
+
 // Run a predefined failure scenario
 ScenarioResult runScenario(const Scenario& scenario) {
     ScenarioResult result = failureSimulator.runScenario(scenario);

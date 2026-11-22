@@ -65,12 +65,14 @@ struct Link {
     int from;
     int to;
     double cost;
+    double congestionLoad;
     ElementStatus status;
 
     Link(int a = 0, int b = 0, double linkCost = 1.0) {
         from = a;
         to = b;
         cost = linkCost;
+        congestionLoad = 0.0;
         status = ElementStatus::ACTIVE;
     }
 };
@@ -185,6 +187,31 @@ public:
         links[i].status = ElementStatus::ACTIVE;
         return true;
     }
+       
+
+    // Set congestion on a link
+    bool congestLink(int a, int b, double load) {
+        int i = findLinkIndex(a, b);
+
+        if (i == -1 || load < 0)
+            return false;
+
+        links[i].congestionLoad = load;
+        return true;
+    }
+
+    // Clear congestion from a link
+    bool clearCongestion(int a, int b) {
+        int i = findLinkIndex(a, b);
+
+        if (i == -1)
+            return false;
+
+        links[i].congestionLoad = 0.0;
+        return true;
+    }
+
+    // ===================== Status queries =====================
 
     // ===================== Status queries =====================
 
@@ -249,7 +276,7 @@ public:
                 continue;
 
             Neighbor n;
-            n.cost = links[i].cost;
+            n.cost = links[i].cost * (1.0 + links[i].congestionLoad / 50.0);
 
             if (links[i].from == id) {
                 n.nodeId = links[i].to;

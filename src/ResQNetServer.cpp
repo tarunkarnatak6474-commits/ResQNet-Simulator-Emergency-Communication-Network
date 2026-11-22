@@ -29,13 +29,25 @@ controller.addLink(0, 4, 4.0); // A-E
 controller.addLink(4, 5, 2.0); // E-F
 controller.addLink(5, 3, 2.0); // F-D
     // Configure initial source and destination
-controller.setEndpoints(0, 5);
+controller.setEndpoints(0, 3);
 
     // =========================================
     // CREATE HTTP SERVER
     // =========================================
 
     httplib::Server server;
+    // CORS configuration for frontend communication
+server.set_default_headers({
+    {"Access-Control-Allow-Origin", "*"},
+    {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+    {"Access-Control-Allow-Headers", "Content-Type"}
+});
+
+// Handle browser preflight requests
+server.Options(R"(.*)", [](const httplib::Request&,
+                           httplib::Response& res) {
+    res.status = 200;
+});
 
     // Health check endpoint
     server.Get("/", [](const httplib::Request&,
@@ -88,6 +100,7 @@ controller.setEndpoints(0, 5);
             link["from"] = links[i].from;
             link["to"] = links[i].to;
             link["cost"] = links[i].cost;
+            link["congestionLoad"] = links[i].congestionLoad;
 
             // Stored status of the link
             link["storedActive"] =
@@ -128,7 +141,7 @@ controller.setEndpoints(0, 5);
 
         response["status"] = "IDLE";
         response["source"] = 0;
-        response["destination"] = 5;
+        response["destination"] = 3;
         response["adaptiveRouting"] =
             controller.isAdaptiveRoutingEnabled();
 
@@ -395,6 +408,95 @@ server.Post("/api/restore-link", [&controller](const httplib::Request& req,
         );
     }
 });
+// POST /api/congest-link
+server.Post("/api/congest-link",
+    [&controller](const httplib::Request& req,
+                  httplib::Response& res) {
+    try {
+        json body = json::parse(req.body);
+
+        if (!body.contains("from") || !body.contains("to") ||
+            !body.contains("load") ||
+            !body["from"].is_number_integer() ||
+            !body["to"].is_number_integer() ||
+            !body["load"].is_number()) {
+
+            res.status = 400;
+            res.set_content(
+                R"({"error":"Missing or invalid congestion data"})",
+                "application/json"
+            );
+            return;
+        }
+
+        int from = body["from"];
+        int to = body["to"];
+        double load = body["load"];
+
+        bool success = controller.congestLink(from, to, load);
+
+        json response;
+        response["success"] = success;
+        response["from"] = from;
+        response["to"] = to;
+        response["load"] = load;
+
+        if (!success)
+            res.status = 400;
+
+        res.set_content(response.dump(4), "application/json");
+    }
+    catch (...) {
+        res.status = 400;
+        res.set_content(
+            R"({"error":"Invalid JSON request"})",
+            "application/json"
+        );
+    }
+});
+
+// POST /api/clear-congestion
+server.Post("/api/clear-congestion",
+    [&controller](const httplib::Request& req,
+                  httplib::Response& res) {
+    try {
+        json body = json::parse(req.body);
+
+        if (!body.contains("from") || !body.contains("to") ||
+            !body["from"].is_number_integer() ||
+            !body["to"].is_number_integer()) {
+
+            res.status = 400;
+            res.set_content(
+                R"({"error":"Missing or invalid link endpoints"})",
+                "application/json"
+            );
+            return;
+        }
+
+        int from = body["from"];
+        int to = body["to"];
+
+        bool success = controller.clearCongestion(from, to);
+
+        json response;
+        response["success"] = success;
+        response["from"] = from;
+        response["to"] = to;
+
+        if (!success)
+            res.status = 400;
+
+        res.set_content(response.dump(4), "application/json");
+    }
+    catch (...) {
+        res.status = 400;
+        res.set_content(
+            R"({"error":"Invalid JSON request"})",
+            "application/json"
+        );
+    }
+});
 
 // POST /api/packets
 server.Post("/api/packets", [&controller](const httplib::Request& req,
@@ -646,6 +748,121 @@ server.Post("/api/scenario", [&controller](const httplib::Request& req,
         );
     }
 });
+
+    // =========================================
+    // POST /api/compare
+    // Compare Static and Adaptive Routing
+    // =========================================
+
+    server.Post("/api/compare",
+        [](const httplib::Request& req,
+           httplib::Response& res) {
+
+        try {
+            int packetCount = 20;
+
+            // Read packet count from request
+            if (!req.body.empty()) {
+                json body = json::parse(req.body);
+
+                if (body.contains("count")) {
+                    if (!body["count"].is_number_integer() ||
+                        body["count"].get<int>() < 0) {
+                        res.status = 400;
+                        res.set_content(
+                            R"({"error":"Invalid packet count"})",
+                            "application/json"
+                        );
+                        return;
+                    }
+
+                    packetCount = body["count"].get<int>();
+                }
+            }
+
+            // Run one independent routing test
+            auto runTest = [packetCount](bool adaptive) {
+
+                SimulationController testController;
+
+                // Create six nodes
+                for (int i = 0; i < 6; i++) {
+                    testController.addNode(i);
+                }
+
+                // Create the same network topology
+                testController.addLink(0, 1, 2.0);
+                testController.addLink(1, 2, 2.0);
+                testController.addLink(2, 3, 2.0);
+
+                testController.addLink(0, 4, 4.0);
+                testController.addLink(4, 5, 2.0);
+                testController.addLink(5, 3, 2.0);
+
+                // Select routing mode and configure A to D
+                testController.setAdaptiveRouting(adaptive);
+                testController.setEndpoints(0, 3);
+
+                // Inject failure at Node B
+                testController.failNode(1);
+
+                // Run three heartbeat rounds
+                for (int i = 0; i < 3; i++) {
+                    testController.runHeartbeatRound();
+                }
+
+                // Transmit packets
+                int delivered =
+                    testController.sendPackets(packetCount);
+
+               
+
+                int deliveryRate = (packetCount > 0)
+                    ? (delivered * 100 / packetCount)
+                    : 0;
+
+                int packetLoss = 100 - deliveryRate;
+
+                bool routeUsable =
+                    testController.getRouting().isCurrentRouteUsable();
+
+                json result;
+
+                result["delivered"] = delivered;
+                result["sent"] = packetCount;
+                result["deliveryRate"] = deliveryRate;
+                result["packetLoss"] = packetLoss;
+                result["routeChanges"] =
+                    testController.getRouting().getRouteChanges();
+
+                // Time measurement is not implemented yet
+                result["recoveryTime"] = 0;
+
+                result["finalState"] = routeUsable
+                    ? "Communication is active on the current route."
+                    : "Route broken, communication stopped.";
+
+                return result;
+            };
+
+            // Run both tests independently
+            json response;
+
+            response["scenario"] = "Node B failure (A to D)";
+            response["static"] = runTest(false);
+            response["adaptive"] = runTest(true);
+
+            res.set_content(response.dump(4), "application/json");
+        }
+        catch (const std::exception& e) {
+            res.status = 500;
+
+            json error;
+            error["error"] = e.what();
+
+            res.set_content(error.dump(4), "application/json");
+        }
+    });
 
 
     std::cout << "\nServer: http://localhost:8080\n";

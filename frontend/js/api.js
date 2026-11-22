@@ -250,4 +250,478 @@ class MockAPI {
 }
 
 /* The rest of the UI only ever talks to this object. */
-const api = new MockAPI();
+
+const NODE_INFO = {
+  0: { id: "A", name: "A", role: "Hospital", x: 90, y: 230 },
+  1: { id: "B", name: "B", role: "Tower", x: 300, y: 100 },
+  2: { id: "C", name: "C", role: "Tower", x: 560, y: 100 },
+  3: { id: "D", name: "D", role: "Emergency center", x: 810, y: 230 },
+  4: { id: "E", name: "E", role: "Tower", x: 300, y: 360 },
+  5: { id: "F", name: "F", role: "Tower", x: 560, y: 360 }
+};
+
+const LETTER_TO_ID = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+
+const BACKEND_SCENARIOS = {
+  main: {
+    label: "Node failure with alternate path (main demo)",
+    steps: [{ type: "failNode", id: 1 }]
+  },
+  test1: {
+    label: "Test 1: Normal communication",
+    steps: []
+  },
+  test3: {
+    label: "Test 3: Link failure with alternate path",
+    steps: [{ type: "failLink", from: 1, to: 2 }]
+  },
+  test4: {
+    label: "Test 4: No alternate path",
+    steps: [
+      { type: "failNode", id: 1 },
+      { type: "failNode", id: 4 }
+    ]
+  },
+  test6: {
+    label: "Test 6: Multiple events, two reroutes",
+    steps: [
+      { type: "failNode", id: 1 },
+      { type: "restoreNode", id: 1 },
+      { type: "failNode", id: 5 }
+    ]
+  }
+};
+
+class CppBackendAPI {
+  constructor() {
+    this.baseUrl = "http://localhost:8080";
+    this.requestActive = false;
+    this.packetCount = 0;
+    this.initialRoute = null;
+    this.finalMessage =
+      "No simulation yet. Create a request or run a scenario.";
+  }
+
+  async _request(path, method = "GET", body = null) {
+    const options = {
+      method,
+      headers: { "Content-Type": "application/json" }
+    };
+
+    if (body !== null) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(this.baseUrl + path, options);
+    const raw = await response.text();
+
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = { message: raw };
+    }
+
+    if (!response.ok) {
+      throw new Error(data.message || "Backend request failed.");
+    }
+
+    return data;
+  }
+
+  _letter(id) {
+    return NODE_INFO[id]?.id || String(id);
+  }
+
+  _number(letter) {
+    const id = LETTER_TO_ID[letter];
+
+    if (id === undefined) {
+      throw new Error("Invalid node: " + letter);
+    }
+
+    return id;
+  }
+
+  _mapPath(path) {
+    if (!Array.isArray(path)) return null;
+    return path.map(id => this._letter(id));
+  }
+
+  // -------------------- QUERIES --------------------
+
+  async getNetworkState() {
+    const data = await this._request("/api/network");
+
+    const nodes = data.nodes.map(n => ({
+      ...NODE_INFO[n.id],
+      active: n.active
+    }));
+
+    const links = data.links.map(l => {
+      const from = this._letter(l.from);
+      const to = this._letter(l.to);
+
+      return {
+        id: from + "-" + to,
+        from,
+        to,
+        cost: l.cost,
+        bandwidth: null,
+        delay: "N/A",
+        load: 0,
+        active: l.active,
+        congested: false
+      };
+    });
+
+    return { nodes, links };
+  }
+
+  async getSimulationState() {
+    const [sim, routes] = await Promise.all([
+      this._request("/api/simulation"),
+      this._request("/api/routes")
+    ]);
+
+    const currentRoute = this._mapPath(routes.currentRoute);
+
+    let status = "IDLE";
+
+    if (this.requestActive || sim.packetsSent > 0) {
+
+  // Recover previous simulation after browser refresh.
+  this.requestActive = true;
+
+  if (!this.packetCount) {
+    this.packetCount = sim.packetsSent;
+  }
+
+  if (!this.initialRoute) {
+    this.initialRoute = currentRoute;
+  }
+
+  if (routes.routeUsable) {
+    status = "ACTIVE";
+  } else if (sim.adaptiveRouting) {
+    status = "NO_ROUTE";
+  } else {
+    status = "STOPPED";
+  }
+}
+    if (status === "NO_ROUTE") {
+      this.finalMessage = "No usable route exists. Communication cannot continue.";
+    } else if (status === "STOPPED") {
+      this.finalMessage = "The route is broken. Communication has stopped.";
+    } else if (status === "ACTIVE") {
+      this.finalMessage = "Communication is active on the current route.";
+    }
+
+    return {
+      status,
+      source: this._letter(sim.source),
+      destination: this._letter(sim.destination),
+      adaptiveRouting: sim.adaptiveRouting,
+      currentRoute,
+      initialRoute: this.initialRoute,
+      alternateRoute: null,
+      packetCount: this.packetCount,
+      finalMessage: this.finalMessage
+    };
+  }
+
+  async getMetrics() {
+    const m = await this._request("/api/metrics");
+
+    const sent = m.packetsSent || 0;
+    const delivered = m.packetsDelivered || 0;
+    const lost = m.packetsLost || 0;
+
+    return {
+      sent,
+      delivered,
+      lost,
+      deliveryRate: sent ? Math.round(delivered / sent * 100) : 0,
+      packetLoss: sent ? Math.round(lost / sent * 100) : 0,
+      pathDelay: "N/A",
+      throughput: "N/A",
+      routeChanges: m.routeChanges || 0,
+      recoveryTime: "N/A"
+    };
+  }
+
+  async getRoutes() {
+    const r = await this._request("/api/routes");
+    const path = this._mapPath(r.currentRoute);
+
+    if (!path || path.length === 0) return [];
+
+    return [{
+      name: "Current route",
+      path,
+      cost: r.routeCost,
+      delay: "N/A",
+      status: r.routeUsable ? "In use" : "Broken, still assigned"
+    }];
+  }
+
+ 
+async getEventLog() {
+  const data = await this._request("/api/events");
+
+  const formatEvent = (e, type) => {
+    let message = e.description || "Network event";
+
+    // Convert numeric node IDs into frontend labels.
+    if (e.nodeId !== undefined && e.nodeId !== null) {
+      message = message.replace(
+        new RegExp("\\bNode\\s+" + e.nodeId + "\\b", "gi"),
+        "Node " + this._letter(e.nodeId)
+      );
+    }
+
+    // Convert numeric link endpoints into frontend labels.
+    if (e.linkFrom !== undefined && e.linkTo !== undefined) {
+      const from = this._letter(e.linkFrom);
+      const to = this._letter(e.linkTo);
+
+      message = message
+        .replace(/\bLink\s+\d+\s*-\s*\d+\b/gi, "Link " + from + "-" + to)
+        .replace(/\b\d+\s*-\s*\d+\b/g, from + "-" + to);
+    }
+
+    return {
+      number: e.number || 0,
+      message,
+      type
+    };
+  };
+
+  const injected = (data.injectedEvents || []).map(
+    e => formatEvent(e, "event")
+  );
+
+  const detected = (data.detectedEvents || []).map(
+    e => formatEvent(e, "detect")
+  );
+
+  return [...injected, ...detected]
+    .sort((a, b) => a.number - b.number)
+    .map((e, i) => ({
+    time: "Event " + (i + 1),
+    message: e.message,
+    type: e.type
+}));
+}
+
+
+  
+  async getComparison() {
+    const metrics = await this.getMetrics();
+
+    // Do not compare until packets have been transmitted.
+    if (metrics.sent <= 0) {
+      return null;
+    }
+
+    // Ask the C++ backend to run independent tests.
+    const comparison = await this._request(
+      "/api/compare",
+      "POST",
+      { count: metrics.sent }
+    );
+
+    return comparison;
+  }
+
+
+  async listScenarios() {
+    return Object.keys(BACKEND_SCENARIOS).map(id => ({
+      id,
+      label: BACKEND_SCENARIOS[id].label
+    }));
+  }
+
+  // -------------------- COMMANDS --------------------
+
+  async createEmergencyRequest(r) {
+    if (r.source !== "A" || r.destination !== "D") {
+      throw new Error(
+        "The current C++ backend supports the fixed route A to D only."
+      );
+    }
+
+    await this._request("/api/routing", "POST", {
+      adaptive: !!r.adaptiveRouting
+    });
+
+    // Run 3 heartbeat rounds so node failures are detected immediately.
+for (let i = 0; i < 3; i++) {
+  await this._request("/api/heartbeat", "POST");
+}
+
+    const routes = await this._request("/api/routes");
+
+    this.requestActive = true;
+    this.packetCount = r.packetCount;
+    this.initialRoute = this._mapPath(routes.currentRoute);
+    this.finalMessage = routes.routeUsable
+      ? "Communication normal on the initial route."
+      : "No usable route exists.";
+
+    return this.getSimulationState();
+  }
+
+  async transmitBatch(batchSize) {
+    if (!this.requestActive) {
+      throw new Error("Create an emergency request first.");
+    }
+
+    const sim = await this._request("/api/simulation");
+    const remaining = this.packetCount - sim.packetsSent;
+
+    if (remaining <= 0) {
+      throw new Error("All packets of this request were already sent.");
+    }
+
+    const count = Math.min(batchSize, remaining);
+
+    const result = await this._request("/api/packets", "POST", {
+      count
+    });
+
+    await this._request("/api/heartbeat", "POST");
+
+    const routes = await this._request("/api/routes");
+
+    return {
+      route: routes.routeUsable
+        ? this._mapPath(routes.currentRoute)
+        : null,
+      delivered: result.delivered,
+      lost: result.lost
+    };
+  }
+
+  
+async triggerEvent({ type, target, load }) {
+
+  if (type === "failNode" || type === "restoreNode") {
+    const id = this._number(target);
+
+    await this._request(
+      type === "failNode" ? "/api/fail-node" : "/api/restore-node",
+      "POST",
+      { id }
+    );
+
+  } else if (
+    type === "failLink" ||
+    type === "restoreLink" ||
+    type === "congestLink" ||
+    type === "clearCongestion"
+  ) {
+    const parts = target.split("-");
+
+    if (parts.length !== 2) {
+      throw new Error("Invalid link: " + target);
+    }
+
+    const from = this._number(parts[0]);
+    const to = this._number(parts[1]);
+
+    if (type === "congestLink") {
+      await this._request("/api/congest-link", "POST", {
+        from,
+        to,
+        load: Number(load || 90)
+      });
+
+    } else if (type === "clearCongestion") {
+      await this._request("/api/clear-congestion", "POST", {
+        from,
+        to
+      });
+
+    } else {
+      await this._request(
+        type === "failLink" ? "/api/fail-link" : "/api/restore-link",
+        "POST",
+        { from, to }
+      );
+    }
+
+  } else {
+    throw new Error("Unsupported event: " + type);
+  }
+
+  // Heartbeat detection only for node/link failures and restoration
+  if (
+    type === "failNode" ||
+    type === "restoreNode" ||
+    type === "failLink" ||
+    type === "restoreLink"
+  ) {
+    for (let i = 0; i < 3; i++) {
+      await this._request("/api/heartbeat", "POST");
+    }
+  }
+}
+
+
+  async restoreAll() {
+    await this._request("/api/restore-all", "POST");
+    await this._request("/api/heartbeat", "POST");
+  }
+
+  async resetSimulation() {
+    await this._request("/api/reset", "POST");
+
+    this.requestActive = false;
+    this.packetCount = 0;
+    this.initialRoute = null;
+    this.finalMessage =
+      "No simulation yet. Create a request or run a scenario.";
+  }
+
+  async runScenario(id) {
+    const scenario = BACKEND_SCENARIOS[id];
+
+    if (!scenario) {
+      throw new Error("Unknown or unsupported scenario.");
+    }
+
+    await this.resetSimulation();
+
+    await this._request("/api/routing", "POST", {
+      adaptive: true
+    });
+
+    const initial = await this._request("/api/routes");
+    this.initialRoute = this._mapPath(initial.currentRoute);
+
+    await this._request("/api/scenario", "POST", {
+      name: scenario.label,
+      steps: scenario.steps
+    });
+
+    await this._request("/api/heartbeat", "POST");
+
+    this.requestActive = true;
+    this.packetCount = 100;
+
+    return this.transmitBatch(100);
+  }
+
+  async addNode() {
+    throw new Error("Adding nodes is not supported by the C++ backend yet.");
+  }
+
+  async addLink() {
+    throw new Error("Adding links is not supported by the C++ backend yet.");
+  }
+}
+
+// The frontend now uses the real C++ backend.
+const api = new CppBackendAPI();
+

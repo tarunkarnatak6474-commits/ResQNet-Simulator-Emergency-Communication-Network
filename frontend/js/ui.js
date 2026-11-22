@@ -19,9 +19,28 @@ const ui = {
 
   renderFinal(sim) {
     const el = this.$("final");
-    el.textContent = sim.finalMessage;
-    el.className = "final" + (sim.status === "ACTIVE" ? " ok" : (sim.status === "STOPPED" || sim.status === "NO_ROUTE") ? " bad" : "");
-  },
+
+    let message = sim.finalMessage;
+
+    if (sim.status === "ACTIVE") {
+        message = "Communication is active on the current route.";
+    }
+    else if (sim.status === "STOPPED") {
+        message = "The route is broken. Communication has stopped.";
+    }
+    else if (sim.status === "NO_ROUTE") {
+        message = "No usable route exists. Communication cannot continue.";
+    }
+    else if (sim.status === "IDLE") {
+        message = "No simulation yet. Create a request or run a scenario.";
+    }
+
+    el.textContent = message;
+
+    el.className = "final" +
+        (sim.status === "ACTIVE" ? " ok" :
+        (sim.status === "STOPPED" || sim.status === "NO_ROUTE") ? " bad" : "");
+},
 
   renderMetrics(m) {
     const defs = [["sent", "Packets sent"], ["delivered", "Delivered"], ["lost", "Lost"],
